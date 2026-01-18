@@ -34,7 +34,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "正在下载 Image 和官方 boot.img..."
-          gh release download kernel --repo ${{ github.repository }} --pattern 'Image' --clobber
+          gh release download kernel --repo ${{ github.repository }} --pattern 'image' --clobber
           gh release download kernel --repo ${{ github.repository }} --pattern 'boot.img' --clobber
 
       - name: Execute Repack
