@@ -29,37 +29,44 @@ jobs:
           # 验证工具是否可用
           ./magiskboot --help | head -n 1
 
-      - name: Download Kernel and Boot from Release
+      - name: Download and Execute Repack
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "正在下载 Image 和官方 boot.img..."
-          gh release download kernel --repo ${{ github.repository }} --pattern 'image' --clobber
+          # 1. 下载文件（使用通配符忽略大小写）
+          echo "正在从标签 'kernel' 下载文件..."
+          gh release download kernel --repo ${{ github.repository }} --pattern 'image*' --clobber
           gh release download kernel --repo ${{ github.repository }} --pattern 'boot.img' --clobber
+          
+          # 2. 自动纠正大小写：将任何形式的 image 统一重命名为大写 Image
+          # 这是为了确保后续 cp Image kernel 命令一定能找到文件
+          IMAGE_FILE=$(ls image* | head -n 1)
+          if [ "$IMAGE_FILE" != "Image" ]; then
+            mv "$IMAGE_FILE" Image
+          fi
+          echo "确认 Image 文件就位: $(ls -l Image)"
 
-      - name: Execute Repack
-        run: |
-          # 1. 解包官方 boot.img
+          # 3. 使用 magiskboot 解包官方 boot.img
           echo "正在解包官方镜像..."
           ./magiskboot unpack boot.img
           
-          # 2. 替换内核
-          # 检查解压出的内核文件名（Magiskboot 通常输出为 'kernel'）
+          # 4. 替换内核
           if [ -f "kernel" ]; then
             echo "发现原厂内核，正在替换为集成 KernelSU 的 Image..."
             rm -f kernel
             cp Image kernel
           else
-            echo "错误：未能识别 boot.img 中的内核部分"
+            echo "错误：magiskboot 未能识别 boot.img 中的内核部分，请确认 boot.img 是否为原厂提取"
             exit 1
           fi
           
-          # 3. 重新打包 (这将自动处理校验和、Header 和签名头)
-          echo "正在使用 Magisk v30.6 技术重新打包..."
+          # 5. 重新打包
+          echo "正在使用 Magisk 官方技术重新打包..."
           ./magiskboot repack boot.img S24_KSU_Repacked.img
           
-          # 4. 检查产物
+          # 6. 验证产物大小
           ls -lh S24_KSU_Repacked.img
+
 
       - name: Upload Final Image
         uses: actions/upload-artifact@v4
