@@ -1,6 +1,6 @@
-name: S24 Boot Repack (GKI 6.1)
+name: S24 Boot Repack (Magisk v30.6)
 on:
-  workflow_dispatch: # 手动点击运行
+  workflow_dispatch:
 
 jobs:
   repack:
@@ -9,63 +9,60 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Script
         uses: actions/checkout@v4
 
-      - name: Setup Build Environment
+      - name: Get Magisk v30.6 and Extract magiskboot
         run: |
-          sudo apt-get update
-          sudo apt-get install -y p7zip-full file
-          # 克隆 Linux 版 AIK 工具
-          git clone https://github.com AIK
-          chmod -R 755 AIK
+          # 1. 下载官方 Magisk v30.6 APK (2026年最新稳定版)
+          echo "正在下载 Magisk v30.6..."
+          wget https://github.com/topjohnwu/Magisk/releases/download/v30.6/Magisk-v30.6.apk
+          
+          # 2. 提取适用于 Linux 虚拟机的 magiskboot 二进制文件
+          # Magisk APK 本质是 ZIP，lib/x86_64 目录下包含可在 GitHub Actions 运行的工具
+          unzip -q Magisk-v30.6.apk "lib/x86_64/libmagiskboot.so"
+          
+          # 3. 重命名并赋予权限
+          mv lib/x86_64/libmagiskboot.so ./magiskboot
+          chmod +x magiskboot
+          
+          # 验证工具是否可用
+          ./magiskboot --help | head -n 1
 
-      - name: Download Assets from Release
+      - name: Download Kernel and Boot from Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "正在下载 Image 和官方 boot.img..."
-          # 从标签为 kernel 的 Release 下载文件
           gh release download kernel --repo ${{ github.repository }} --pattern 'Image' --clobber
           gh release download kernel --repo ${{ github.repository }} --pattern 'boot.img' --clobber
-          
-          # 验证文件是否下载成功
-          if [ ! -f "Image" ] || [ ! -f "boot.img" ]; then
-            echo "错误：未能在 Release 中找到 Image 或 boot.img，请检查文件名大小写"
-            exit 1
-          fi
 
       - name: Execute Repack
         run: |
-          # 1. 准备文件
-          cp Image AIK/Image
-          cp boot.img AIK/boot.img
-          cd AIK
+          # 1. 解包官方 boot.img
+          echo "正在解包官方镜像..."
+          ./magiskboot unpack boot.img
           
-          # 2. 解包官方镜像
-          echo "正在解包官方 boot.img..."
-          ./unpackimg.sh boot.img
-          
-          # 3. 替换内核
-          # 三星 S24 属于 GKI 架构，内核在 AIK 中识别为 boot.img-kernel
-          if [ -f "split_img/boot.img-kernel" ]; then
-            echo "发现原厂内核，正在替换为编译后的 Image..."
-            rm -f split_img/boot.img-kernel
-            cp Image split_img/boot.img-kernel
+          # 2. 替换内核
+          # 检查解压出的内核文件名（Magiskboot 通常输出为 'kernel'）
+          if [ -f "kernel" ]; then
+            echo "发现原厂内核，正在替换为集成 KernelSU 的 Image..."
+            rm -f kernel
+            cp Image kernel
           else
-            echo "错误：AIK 未能在该镜像中识别到内核分区，请确认 boot.img 是否为原厂提取"
+            echo "错误：未能识别 boot.img 中的内核部分"
             exit 1
           fi
           
-          # 4. 重新封包
-          echo "正在重新打包..."
-          ./repackimg.sh
+          # 3. 重新打包 (这将自动处理校验和、Header 和签名头)
+          echo "正在使用 Magisk v30.6 技术重新打包..."
+          ./magiskboot repack boot.img S24_KSU_Repacked.img
           
-          # 5. 移出成品并重命名
-          mv image-new.img ../S24_KSU_Boot_Final.img
+          # 4. 检查产物
+          ls -lh S24_KSU_Repacked.img
 
-      - name: Upload Repacked Boot
+      - name: Upload Final Image
         uses: actions/upload-artifact@v4
         with:
           name: S24-KSU-Boot-Final
-          path: S24_KSU_Boot_Final.img
+          path: S24_KSU_Repacked.img
