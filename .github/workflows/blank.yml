@@ -1,0 +1,71 @@
+name: S24 Boot Repack (GKI 6.1)
+on:
+  workflow_dispatch: # 手动点击运行
+
+jobs:
+  repack:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full file
+          # 克隆 Linux 版 AIK 工具
+          git clone https://github.com AIK
+          chmod -R 755 AIK
+
+      - name: Download Assets from Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "正在下载 Image 和官方 boot.img..."
+          # 从标签为 kernel 的 Release 下载文件
+          gh release download kernel --repo ${{ github.repository }} --pattern 'Image' --clobber
+          gh release download kernel --repo ${{ github.repository }} --pattern 'boot.img' --clobber
+          
+          # 验证文件是否下载成功
+          if [ ! -f "Image" ] || [ ! -f "boot.img" ]; then
+            echo "错误：未能在 Release 中找到 Image 或 boot.img，请检查文件名大小写"
+            exit 1
+          fi
+
+      - name: Execute Repack
+        run: |
+          # 1. 准备文件
+          cp Image AIK/Image
+          cp boot.img AIK/boot.img
+          cd AIK
+          
+          # 2. 解包官方镜像
+          echo "正在解包官方 boot.img..."
+          ./unpackimg.sh boot.img
+          
+          # 3. 替换内核
+          # 三星 S24 属于 GKI 架构，内核在 AIK 中识别为 boot.img-kernel
+          if [ -f "split_img/boot.img-kernel" ]; then
+            echo "发现原厂内核，正在替换为编译后的 Image..."
+            rm -f split_img/boot.img-kernel
+            cp Image split_img/boot.img-kernel
+          else
+            echo "错误：AIK 未能在该镜像中识别到内核分区，请确认 boot.img 是否为原厂提取"
+            exit 1
+          fi
+          
+          # 4. 重新封包
+          echo "正在重新打包..."
+          ./repackimg.sh
+          
+          # 5. 移出成品并重命名
+          mv image-new.img ../S24_KSU_Boot_Final.img
+
+      - name: Upload Repacked Boot
+        uses: actions/upload-artifact@v4
+        with:
+          name: S24-KSU-Boot-Final
+          path: S24_KSU_Boot_Final.img
