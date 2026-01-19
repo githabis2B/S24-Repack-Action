@@ -71,5 +71,5 @@ jobs:
       - name: Upload Final Image
         uses: actions/upload-artifact@v4
         with:
-          name: S24-KSU-Boot-Final
+          name: S24-KSU-Boot-Final2.0
           path: S24_KSU_Repacked.img
